@@ -12,13 +12,14 @@ const generateTokenAndSetCookie = (res, payload) => {
     expiresIn: process.env.JWT_EXPIRES_IN || "30d",
   });
 
-  // 30 hari dalam milidetik
   const thirtyDays = 30 * 24 * 60 * 60 * 1000;
 
   res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,       // tidak bisa diakses JS di browser (anti-XSS)
-    secure: process.env.NODE_ENV === "production", // HTTPS only di production
-    sameSite: "lax",      
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    domain:
+      process.env.NODE_ENV === "production" ? ".jokicalm.store" : undefined,
     maxAge: thirtyDays,
   });
 
@@ -42,9 +43,16 @@ const clearAuthCookie = (res) => {
   res.cookie(COOKIE_NAME, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    domain:
+      process.env.NODE_ENV === "production" ? ".jokicalm.store" : undefined,
     maxAge: 0,
   });
 };
 
-module.exports = { generateTokenAndSetCookie, verifyToken, clearAuthCookie, COOKIE_NAME };
+module.exports = {
+  generateTokenAndSetCookie,
+  verifyToken,
+  clearAuthCookie,
+  COOKIE_NAME,
+};
