@@ -1,5 +1,18 @@
 const { ORDER_STATUS } = require("../constants/joki.constants");
 
+const validateWorkerAdminIds = (w, i, errors) => {
+  if (w.adminIds !== undefined) {
+    if (!Array.isArray(w.adminIds)) {
+      errors.push(`Worker index ${i}: adminIds harus berupa array.`);
+    } else {
+      w.adminIds.forEach((id, j) => {
+        if (typeof id !== "string" && typeof id !== "number")
+          errors.push(`Worker index ${i}: adminIds[${j}] harus string atau angka.`);
+      });
+    }
+  }
+};
+
 /**
  * Validasi body untuk create order
  */
@@ -31,6 +44,7 @@ const validateCreateOrder = (body) => {
               errors.push(`Worker index ${i}: stars untuk tier ${tier} harus angka positif.`);
           });
         }
+        validateWorkerAdminIds(w, i, errors);
       });
     }
   }
@@ -65,6 +79,7 @@ const validateUpdateOrder = (body) => {
               errors.push(`Worker index ${i}: stars untuk tier ${tier} harus angka positif.`);
           });
         }
+        validateWorkerAdminIds(w, i, errors);
       });
     }
   }

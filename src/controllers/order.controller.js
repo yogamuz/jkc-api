@@ -108,6 +108,12 @@ const markPaid = async (req, res, next) => {
 // GET /api/orders/summary?seasonId=xxx
 const summary = async (req, res, next) => {
   try {
+    if (req.user.role !== "owner")
+      return res.status(403).json({
+        message:
+          "Akses ditolak. Hanya owner yang bisa melihat ringkasan keuangan.",
+      });
+
     const { seasonId } = req.query;
     if (!seasonId)
       return res
@@ -140,12 +146,17 @@ const workerSummary = async (req, res, next) => {
 const dashboardSummary = async (req, res, next) => {
   try {
     const data = await orderService.getDashboardSummary();
+
+    if (req.user.role !== "owner") {
+      const { totalOmset, totalGaji, totalProfit, ...rest } = data;
+      return res.json({ data: rest });
+    }
+
     res.json({ data });
   } catch (err) {
     next(err);
   }
 };
-
 // GET /api/workers?seasonId=xxx (opsional)
 const getAllWorkers = async (req, res, next) => {
   try {

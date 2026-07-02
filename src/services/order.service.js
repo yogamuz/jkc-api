@@ -2,6 +2,30 @@ const Order = require("../models/order.model");
 const Season = require("../models/season.model");
 const { getRateByDate, calculateWorkerSalary } = require("./season.service");
 
+// ── Helper: hitung jobSalary, adminFeeTotal, dan salary total untuk 1 worker ──
+// adminFeePerId SELALU diambil dari Season (server-side), tidak pernah dari input client.
+const buildWorker = (w, rates, category, adminFeePerId) => {
+  const jobSalary = rates
+    ? calculateWorkerSalary(rates, w.rankBreakdown || {}, category)
+    : 0;
+
+  const adminIds = Array.isArray(w.adminIds)
+    ? w.adminIds.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  const adminFeeTotal = adminIds.length * (adminFeePerId || 0);
+
+  return {
+    name: w.name.toUpperCase(),
+    rankBreakdown: w.rankBreakdown || {},
+    adminIds,
+    jobSalary,
+    adminFeeTotal,
+    salary: jobSalary + adminFeeTotal,
+    isPaid: w.isPaid || false,
+    paidAt: w.paidAt || null,
+  };
+};
+
 /**
  * Ambil semua order per season
  * Support filter: workerName, status, dateFrom, dateTo
@@ -35,7 +59,8 @@ const getOrderById = async (id) => {
 
 /**
  * Buat order baru
- * - Auto kalkulasi salary worker dari rankBreakdown × rate tanggal order
+ * - Auto kalkulasi jobSalary worker dari rankBreakdown × rate tanggal order
+ * - Auto kalkulasi adminFeeTotal dari adminIds.length × Season.adminFee (server-side)
  * - Auto hitung totalWorkerSalary dan profit
  */
 const createOrder = async (data) => {
@@ -51,7 +76,7 @@ const createOrder = async (data) => {
     extraFields = {},
   } = data;
 
-  // ambil season beserta rateHistory
+  // ambil season beserta rateHistory & adminFee
   const season = await Season.findById(seasonId);
   if (!season) throw new Error("Season tidak ditemukan.");
 
@@ -61,19 +86,14 @@ const createOrder = async (data) => {
   // ambil rate yang berlaku pada tanggal order
   const rates = getRateByDate(season, orderDate);
 
-  // hitung salary tiap worker berdasarkan rankBreakdown × rate
-  const processedWorkers = workers.map((w) => {
-    const salary = rates
-      ? calculateWorkerSalary(rates, w.rankBreakdown || {}, category)
-      : 0;
-    return {
-      name: w.name.toUpperCase(),
-      rankBreakdown: w.rankBreakdown || {},
-      salary,
-      isPaid: false,
-      paidAt: null,
-    };
-  });
+  // fee per ID admin — HANYA dari Season, tidak pernah dari body request
+  const adminFeePerId = season.adminFee || 0;
+
+  // hitung salary tiap worker (job + admin fee)
+  const processedWorkers = workers.map((w) =>
+    buildWorker(w, rates, category, adminFeePerId),
+  );
+
   const calculatedSalary = processedWorkers.reduce(
     (sum, w) => sum + w.salary,
     0,
@@ -87,6 +107,7 @@ const createOrder = async (data) => {
     totalWorkerSalary > 0 &&
     processedWorkers.length > 0
   ) {
+    processedWorkers[0].jobSalary = totalWorkerSalary;
     processedWorkers[0].salary = totalWorkerSalary;
   }
 
@@ -104,7 +125,9 @@ const createOrder = async (data) => {
     totalWorkerSalary,
     profit,
     extraFields,
-    rateSnapshot: rates || null,
+    rateSnapshot: rates
+      ? { ...rates, adminFeePerId }
+      : { adminFeePerId },
     createdBy: data.createdBy || null,
     updatedBy: data.createdBy || null,
   });
@@ -114,7 +137,7 @@ const createOrder = async (data) => {
 
 /**
  * Update order
- * Jika workers atau category berubah, hitung ulang salary
+ * Jika workers atau category berubah, hitung ulang salary (termasuk admin fee)
  */
 const updateOrder = async (id, data) => {
   const order = await Order.findById(id);
@@ -145,20 +168,12 @@ const updateOrder = async (id, data) => {
     const season = await Season.findById(order.seasonId);
     const rates = getRateByDate(season, order.date);
     const category = data.category || order.category;
+    const adminFeePerId = season?.adminFee || 0;
 
     if (data.workers) {
-      order.workers = data.workers.map((w) => {
-        const salary = rates
-          ? calculateWorkerSalary(rates, w.rankBreakdown || {}, category)
-          : 0;
-        return {
-          name: w.name.toUpperCase(),
-          rankBreakdown: w.rankBreakdown || {},
-          salary,
-          isPaid: w.isPaid || false,
-          paidAt: w.paidAt || null,
-        };
-      });
+      order.workers = data.workers.map((w) =>
+        buildWorker(w, rates, category, adminFeePerId),
+      );
     }
 
     order.totalWorkerSalary = order.workers.reduce(
@@ -166,7 +181,9 @@ const updateOrder = async (id, data) => {
       0,
     );
     order.profit = order.price - order.totalWorkerSalary;
-    order.rateSnapshot = rates || null;
+    order.rateSnapshot = rates
+      ? { ...rates, adminFeePerId }
+      : { adminFeePerId };
   }
 
   await order.save();
@@ -241,6 +258,7 @@ const getSeasonSummary = async (seasonId) => {
 /**
  * Rekap gaji per worker dalam satu season
  * Berisi: total salary earned, total paid, total unpaid
+ * (totalEarned sudah termasuk jobSalary + adminFeeTotal, karena pakai w.salary)
  */
 const getWorkerSalarySummary = async (seasonId) => {
   const orders = await Order.find({ seasonId });
@@ -342,6 +360,9 @@ const getWorkerDetail = async (workerName, seasonId = null) => {
       date: order.date,
       category: order.category,
       rankBreakdown: Object.fromEntries(worker.rankBreakdown),
+      adminIds: worker.adminIds || [],
+      jobSalary: worker.jobSalary,
+      adminFeeTotal: worker.adminFeeTotal,
       salary: worker.salary,
       isPaid: worker.isPaid,
       paidAt: worker.paidAt,

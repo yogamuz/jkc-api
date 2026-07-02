@@ -18,7 +18,24 @@ const orderWorkerSchema = new mongoose.Schema(
       of: Number,
       default: {},
     },
-    // gaji worker untuk order ini — dihitung otomatis dari rankBreakdown × rate
+    // ── Admin fee (opsional) ──────────────────────────────
+    // ID-ID yang diinput admin secara manual, contoh: ["1", "2", "3"]
+    // Fee per ID diambil dari Season.adminFee (server-side, admin tidak bisa override)
+    adminIds: {
+      type: [String],
+      default: [],
+    },
+    // gaji dari job (rankBreakdown × rate) — dihitung otomatis
+    jobSalary: {
+      type: Number,
+      default: 0,
+    },
+    // total fee admin = adminIds.length × Season.adminFee — dihitung otomatis
+    adminFeeTotal: {
+      type: Number,
+      default: 0,
+    },
+    // gaji worker untuk order ini = jobSalary + adminFeeTotal — dihitung otomatis
     salary: {
       type: Number,
       default: 0,
@@ -86,7 +103,7 @@ const orderSchema = new mongoose.Schema(
       type: [orderWorkerSchema],
       default: [],
     },
-    // total gaji semua worker — dihitung otomatis
+    // total gaji semua worker (jobSalary + adminFeeTotal semua worker) — dihitung otomatis
     totalWorkerSalary: {
       type: Number,
       default: 0,
