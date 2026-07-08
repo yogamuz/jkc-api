@@ -21,6 +21,18 @@ const getOne = async (req, res, next) => {
   }
 };
 
+// GET /api/seasons/public/rates  (TANPA auth — untuk halaman harga customer)
+const getPublicRates = async (req, res, next) => {
+  try {
+    const data = await seasonService.getPublicActiveRates();
+    if (!data)
+      return res.status(404).json({ message: "Belum ada season aktif." });
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // POST /api/seasons
 const create = async (req, res, next) => {
   try {
@@ -88,4 +100,4 @@ const updateRates = async (req, res, next) => {
   }
 };
 
-module.exports = { getAll, getOne, create, update, remove, addColumn, removeColumn, updateRates };
+module.exports = { getAll, getOne, create, update, remove, addColumn, removeColumn, updateRates, getPublicRates };

@@ -8,11 +8,13 @@ const {
   addColumn,
   removeColumn,
   updateRates,
+  getPublicRates,
 } = require("../controllers/season.controller");
 const { protect } = require("../middlewares/auth.middleware");
 
 const router = express.Router();
-
+// ── Public (tanpa login) — untuk halaman harga customer ────
+router.get("/public/rates", getPublicRates);
 // semua route season butuh login
 router.use(protect);
 

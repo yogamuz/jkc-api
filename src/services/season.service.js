@@ -97,6 +97,29 @@ const getActiveRates = (season) => {
 };
 
 /**
+ * Ambil rate aktif untuk ditampilkan ke publik (customer)
+ * Hanya kirim data tier rates dari season yang isActive,
+ * TANPA adminFee, worker data, atau rate history lama (data sensitif)
+ */
+const getPublicActiveRates = async () => {
+const season = await Season.findOne({ isActive: true })
+  .sort({ createdAt: -1 })
+  .select("name label rateHistory");
+  if (!season) return null;
+
+  const rates = getActiveRates(season);
+
+  return {
+    seasonName: season.label || season.name,
+    rates: rates.map((r) => ({
+      tier: r.tier,
+      rate_store_joki: r.rate_store_joki,
+      rate_store_jokgen: r.rate_store_jokgen,
+    })),
+  };
+};
+
+/**
  * Hitung gaji worker berdasarkan rankBreakdown dan rate pada tanggal order
  * rankBreakdown contoh: { LEGEND: 5, MAWI: 3 }
  * category: "JOKI RANK" atau "JOKI GENDONG"
@@ -161,6 +184,7 @@ module.exports = {
   updateRates,
   getRateByDate,
   getActiveRates,
+  getPublicActiveRates,
   calculateWorkerSalary,
   addColumn,
   removeColumn,
