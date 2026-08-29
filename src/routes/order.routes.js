@@ -6,6 +6,7 @@ const {
   update,
   remove,
   markPaid,
+  markAdminFeePaid,
   summary,
   workerSummary,
 } = require("../controllers/order.controller");
@@ -28,5 +29,5 @@ router.delete("/:id", remove);
 
 // ── Worker Paid Status ────────────────────────────────────
 router.patch("/:id/workers/:workerName/paid", markPaid);
-
+router.patch("/:id/workers/:workerName/admin-paid", markAdminFeePaid);
 module.exports = router;

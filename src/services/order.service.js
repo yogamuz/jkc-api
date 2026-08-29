@@ -1,6 +1,7 @@
 const Order = require("../models/order.model");
 const Season = require("../models/season.model");
 const { getRateByDate, calculateWorkerSalary } = require("./season.service");
+const { logAction, diffFields } = require("./auditLog.service");
 
 // ── Helper: hitung jobSalary, adminFeeTotal, dan salary total untuk 1 worker ──
 // adminFeePerId SELALU diambil dari Season (server-side), tidak pernah dari input client.
@@ -125,14 +126,21 @@ const createOrder = async (data) => {
     totalWorkerSalary,
     profit,
     extraFields,
-    rateSnapshot: rates
-      ? { ...rates, adminFeePerId }
-      : { adminFeePerId },
+    rateSnapshot: rates ? { ...rates, adminFeePerId } : { adminFeePerId },
     createdBy: data.createdBy || null,
     updatedBy: data.createdBy || null,
   });
 
   return order;
+  
+await logAction({
+  action: "CREATE",
+  entityType: "Order",
+  entityId: order._id,
+  changes: null,
+  performedBy: data.createdBy || null,
+});
+
 };
 
 /**
@@ -142,6 +150,7 @@ const createOrder = async (data) => {
 const updateOrder = async (id, data) => {
   const order = await Order.findById(id);
   if (!order) throw new Error("Order tidak ditemukan.");
+  const before = order.toObject();
 
   const needsRecalc =
     data.workers !== undefined ||
@@ -187,6 +196,23 @@ const updateOrder = async (id, data) => {
   }
 
   await order.save();
+  const changes = diffFields(before, order.toObject(), [
+    "customerName",
+    "date",
+    "category",
+    "payment",
+    "price",
+    "status",
+    "totalWorkerSalary",
+    "profit",
+  ]);
+  await logAction({
+    action: "UPDATE",
+    entityType: "Order",
+    entityId: order._id,
+    changes,
+    performedBy: data.updatedBy || null,
+  });
   return order;
 };
 
@@ -195,7 +221,12 @@ const updateOrder = async (id, data) => {
  * workerName: nama worker yang mau di-mark
  * isPaid: true / false
  */
-const markWorkerPaid = async (orderId, workerName, isPaid, updatedBy = null) => {
+const markWorkerPaid = async (
+  orderId,
+  workerName,
+  isPaid,
+  updatedBy = null,
+) => {
   const order = await Order.findById(orderId);
   if (!order) throw new Error("Order tidak ditemukan.");
 
@@ -208,15 +239,63 @@ const markWorkerPaid = async (orderId, workerName, isPaid, updatedBy = null) => 
   if (updatedBy) order.updatedBy = updatedBy;
 
   await order.save();
+  await logAction({
+    action: "UPDATE",
+    entityType: "Order",
+    entityId: order._id,
+    changes: { workerSalaryPaid: { workerName: worker.name, isPaid } },
+    performedBy: updatedBy || null,
+  });
+  return order;
+};
+
+/**
+ * Mark fee admin (bukan job salary) sebagai PAID / UNPAID
+ */
+const markAdminFeePaid = async (
+  orderId,
+  workerName,
+  isPaid,
+  updatedBy = null,
+) => {
+  const order = await Order.findById(orderId);
+  if (!order) throw new Error("Order tidak ditemukan.");
+
+  const worker = order.workers.find((w) => w.name === workerName.toUpperCase());
+  if (!worker)
+    throw new Error(`Worker "${workerName}" tidak ditemukan di order ini.`);
+
+  worker.isAdminFeePaid = isPaid;
+  worker.adminFeePaidAt = isPaid ? new Date() : null;
+  if (updatedBy) order.updatedBy = updatedBy;
+
+  await order.save();
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Order",
+    entityId: order._id,
+    changes: { adminFeePaid: { workerName: worker.name, isPaid } },
+    performedBy: updatedBy || null,
+  });
+
   return order;
 };
 
 /**
  * Hapus order
  */
-const deleteOrder = async (id) => {
+const deleteOrder = async (id, deletedBy = null) => {
   const order = await Order.findById(id);
   if (!order) throw new Error("Order tidak ditemukan.");
+
+  await logAction({
+    action: "DELETE",
+    entityType: "Order",
+    entityId: order._id,
+    changes: null,
+    performedBy: deletedBy,
+  });
 
   await order.deleteOne();
   return { message: "Order berhasil dihapus." };
@@ -418,16 +497,129 @@ const getAllWorkers = async (seasonId = null) => {
   }));
 };
 
+const getTodayRange = () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+};
+
+/**
+ * List semua "admin" (worker yang punya adminIds) beserta jumlah ID hari ini & total
+ */
+const getAllAdmins = async (seasonId = null) => {
+  const { start, end } = getTodayRange();
+  const match = seasonId
+    ? { seasonId: new (require("mongoose").Types.ObjectId)(seasonId) }
+    : {};
+
+  const result = await Order.aggregate([
+    { $match: match },
+    { $unwind: "$workers" },
+    { $match: { "workers.adminIds.0": { $exists: true } } },
+    {
+      $project: {
+        name: "$workers.name",
+        idCount: { $size: "$workers.adminIds" },
+        adminFeeTotal: "$workers.adminFeeTotal",
+        isAdminFeePaid: "$workers.isAdminFeePaid",
+        createdAt: 1,
+      },
+    },
+    {
+      $group: {
+        _id: "$name",
+        totalIdInput: { $sum: "$idCount" },
+        todayIdInput: {
+          $sum: {
+            $cond: [
+              { $and: [{ $gte: ["$createdAt", start] }, { $lte: ["$createdAt", end] }] },
+              "$idCount",
+              0,
+            ],
+          },
+        },
+        totalEarned: { $sum: "$adminFeeTotal" },
+        totalPaid: { $sum: { $cond: ["$isAdminFeePaid", "$adminFeeTotal", 0] } },
+        totalUnpaid: { $sum: { $cond: ["$isAdminFeePaid", 0, "$adminFeeTotal"] } },
+      },
+    },
+    { $sort: { totalUnpaid: -1 } },
+  ]);
+
+  return result.map((a) => ({
+    name: a._id,
+    totalIdInput: a.totalIdInput,
+    todayIdInput: a.todayIdInput,
+    totalEarned: a.totalEarned,
+    totalPaid: a.totalPaid,
+    totalUnpaid: a.totalUnpaid,
+  }));
+};
+
+/**
+ * Detail history ID admin per worker (across order)
+ */
+const getAdminDetail = async (adminName, seasonId = null) => {
+  const query = {
+    "workers.name": adminName.toUpperCase(),
+    "workers.adminIds.0": { $exists: true },
+  };
+  if (seasonId)
+    query.seasonId = new (require("mongoose").Types.ObjectId)(seasonId);
+
+  const orders = await Order.find(query)
+    .populate("seasonId", "name label")
+    .sort({ createdAt: -1 });
+
+  let totalIdInput = 0, totalEarned = 0, totalPaid = 0, totalUnpaid = 0;
+
+  const history = orders.map((order) => {
+    const worker = order.workers.find((w) => w.name === adminName.toUpperCase());
+    const idCount = worker.adminIds.length;
+    totalIdInput += idCount;
+    totalEarned += worker.adminFeeTotal;
+    if (worker.isAdminFeePaid) totalPaid += worker.adminFeeTotal;
+    else totalUnpaid += worker.adminFeeTotal;
+
+    return {
+      orderId: order._id,
+      seasonName: order.seasonId?.name || "—",
+      customerName: order.customerName,
+      inputAt: order.createdAt,
+      adminIds: worker.adminIds,
+      idCount,
+      adminFeeTotal: worker.adminFeeTotal,
+      isAdminFeePaid: worker.isAdminFeePaid,
+      adminFeePaidAt: worker.adminFeePaidAt,
+    };
+  });
+
+  return {
+    name: adminName.toUpperCase(),
+    totalIdInput,
+    totalEarned,
+    totalPaid,
+    totalUnpaid,
+    totalOrders: orders.length,
+    history,
+  };
+};
+
 module.exports = {
   getOrdersBySeason,
   getOrderById,
   createOrder,
   updateOrder,
   markWorkerPaid,
+  markAdminFeePaid,
   deleteOrder,
   getSeasonSummary,
   getWorkerSalarySummary,
   getWorkerDetail,
   getAllWorkers,
   getDashboardSummary,
+  getAllAdmins,
+  getAdminDetail,
 };

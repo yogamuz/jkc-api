@@ -1,4 +1,5 @@
 const Season = require("../models/season.model");
+const { logAction, diffFields } = require("./auditLog.service");
 
 const getAllSeasons = async () => {
   return Season.find().sort({ createdAt: -1 }).select("-__v");
@@ -10,8 +11,9 @@ const getSeasonById = async (id) => {
   return season;
 };
 
-const createSeason = async (data) => {
-  const { name, label, rates, extraColumns, adminFee, startDate, endDate } = data;
+const createSeason = async (data, performedBy = null) => {
+  const { name, label, rates, extraColumns, adminFee, startDate, endDate } =
+    data;
 
   const exists = await Season.findOne({ name: name.trim().toUpperCase() });
   if (exists) throw new Error(`Season "${name.toUpperCase()}" sudah ada.`);
@@ -32,12 +34,22 @@ const createSeason = async (data) => {
     endDate: endDate || null,
   });
 
+  await logAction({
+    action: "CREATE",
+    entityType: "Season",
+    entityId: season._id,
+    changes: null,
+    performedBy,
+  });
+
   return season;
 };
 
-const updateSeason = async (id, data) => {
+const updateSeason = async (id, data, performedBy = null) => {
   const season = await Season.findById(id);
   if (!season) throw new Error("Season tidak ditemukan.");
+
+  const before = season.toObject();
 
   const allowed = ["label", "isActive", "adminFee", "startDate", "endDate"];
   allowed.forEach((key) => {
@@ -45,6 +57,16 @@ const updateSeason = async (id, data) => {
   });
 
   await season.save();
+
+  const changes = diffFields(before, season.toObject(), allowed);
+  await logAction({
+    action: "UPDATE",
+    entityType: "Season",
+    entityId: season._id,
+    changes,
+    performedBy,
+  });
+
   return season;
 };
 
@@ -52,7 +74,7 @@ const updateSeason = async (id, data) => {
  * Update rate — PUSH entry baru ke rateHistory, tidak replace
  * Rate lama tetap tersimpan untuk referensi order sebelumnya
  */
-const updateRates = async (id, rates, note = "") => {
+const updateRates = async (id, rates, note = "", performedBy = null) => {
   const season = await Season.findById(id);
   if (!season) throw new Error("Season tidak ditemukan.");
   if (!Array.isArray(rates)) throw new Error("Rates harus berupa array.");
@@ -64,6 +86,15 @@ const updateRates = async (id, rates, note = "") => {
   });
 
   await season.save();
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Season",
+    entityId: season._id,
+    changes: { rateHistory: { added: rates, note } },
+    performedBy,
+  });
+
   return season;
 };
 
@@ -91,7 +122,7 @@ const getActiveRates = (season) => {
   if (!season.rateHistory || season.rateHistory.length === 0) return [];
 
   const sorted = [...season.rateHistory].sort(
-    (a, b) => new Date(b.effectiveDate) - new Date(a.effectiveDate)
+    (a, b) => new Date(b.effectiveDate) - new Date(a.effectiveDate),
   );
   return sorted[0].rates;
 };
@@ -102,9 +133,9 @@ const getActiveRates = (season) => {
  * TANPA adminFee, worker data, atau rate history lama (data sensitif)
  */
 const getPublicActiveRates = async () => {
-const season = await Season.findOne({ isActive: true })
-  .sort({ createdAt: -1 })
-  .select("name label rateHistory");
+  const season = await Season.findOne({ isActive: true })
+    .sort({ createdAt: -1 })
+    .select("name label rateHistory");
   if (!season) return null;
 
   const rates = getActiveRates(season);
@@ -133,30 +164,46 @@ const calculateWorkerSalary = (rates, rankBreakdown, category) => {
   for (const [tier, stars] of Object.entries(rankBreakdown)) {
     if (!stars || stars <= 0) continue;
 
-    const rateEntry = rates.find((r) => r.tier.toUpperCase() === tier.toUpperCase());
+    const rateEntry = rates.find(
+      (r) => r.tier.toUpperCase() === tier.toUpperCase(),
+    );
     if (!rateEntry) continue;
 
-    const ratePerStar = isGendong ? rateEntry.rate_worker_jokgen : rateEntry.rate_worker_joki;
+    const ratePerStar = isGendong
+      ? rateEntry.rate_worker_jokgen
+      : rateEntry.rate_worker_joki;
     total += ratePerStar * stars;
   }
 
   return total;
 };
 
-const addColumn = async (id, columnData) => {
+const addColumn = async (id, columnData, performedBy = null) => {
   const season = await Season.findById(id);
   if (!season) throw new Error("Season tidak ditemukan.");
 
-  const isDuplicate = season.extraColumns.some((col) => col.key === columnData.key);
-  if (isDuplicate) throw new Error(`Kolom dengan key "${columnData.key}" sudah ada.`);
+  const isDuplicate = season.extraColumns.some(
+    (col) => col.key === columnData.key,
+  );
+  if (isDuplicate)
+    throw new Error(`Kolom dengan key "${columnData.key}" sudah ada.`);
 
   columnData.order = season.extraColumns.length;
   season.extraColumns.push(columnData);
   await season.save();
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Season",
+    entityId: season._id,
+    changes: { columnAdded: columnData.key },
+    performedBy,
+  });
+
   return season;
 };
 
-const removeColumn = async (id, columnKey) => {
+const removeColumn = async (id, columnKey, performedBy = null) => {
   const season = await Season.findById(id);
   if (!season) throw new Error("Season tidak ditemukan.");
 
@@ -165,12 +212,29 @@ const removeColumn = async (id, columnKey) => {
 
   season.extraColumns.splice(index, 1);
   await season.save();
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Season",
+    entityId: season._id,
+    changes: { columnRemoved: columnKey },
+    performedBy,
+  });
+
   return season;
 };
 
-const deleteSeason = async (id) => {
+const deleteSeason = async (id, performedBy = null) => {
   const season = await Season.findById(id);
   if (!season) throw new Error("Season tidak ditemukan.");
+
+  await logAction({
+    action: "DELETE",
+    entityType: "Season",
+    entityId: season._id,
+    changes: null,
+    performedBy,
+  });
 
   await season.deleteOne();
   return { message: `Season "${season.name}" berhasil dihapus.` };

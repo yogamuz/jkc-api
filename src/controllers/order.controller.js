@@ -74,7 +74,7 @@ const update = async (req, res, next) => {
 // DELETE /api/orders/:id
 const remove = async (req, res, next) => {
   try {
-    const result = await orderService.deleteOrder(req.params.id);
+    const result = await orderService.deleteOrder(req.params.id, req.user.id);
     res.json(result);
   } catch (err) {
     next(err);
@@ -98,6 +98,30 @@ const markPaid = async (req, res, next) => {
     );
     res.json({
       message: `Gaji worker berhasil di-mark sebagai ${isPaid ? "PAID" : "UNPAID"}.`,
+      data: order,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/orders/:id/workers/:workerName/admin-paid
+const markAdminFeePaid = async (req, res, next) => {
+  try {
+    const { isPaid } = req.body;
+    if (typeof isPaid !== "boolean")
+      return res
+        .status(400)
+        .json({ message: "isPaid harus boolean (true/false)." });
+
+    const order = await orderService.markAdminFeePaid(
+      req.params.id,
+      req.params.workerName,
+      isPaid,
+      req.user.id,
+    );
+    res.json({
+      message: `Fee admin berhasil di-mark sebagai ${isPaid ? "PAID" : "UNPAID"}.`,
       data: order,
     });
   } catch (err) {
@@ -182,6 +206,31 @@ const getWorkerDetail = async (req, res, next) => {
   }
 };
 
+// GET /api/admins?seasonId=xxx (opsional)
+const getAllAdmins = async (req, res, next) => {
+  try {
+    const { seasonId } = req.query;
+    const data = await orderService.getAllAdmins(seasonId || null);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/admins/:name?seasonId=xxx (opsional)
+const getAdminDetail = async (req, res, next) => {
+  try {
+    const { seasonId } = req.query;
+    const data = await orderService.getAdminDetail(
+      req.params.name,
+      seasonId || null,
+    );
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getAll,
   getOne,
@@ -189,9 +238,12 @@ module.exports = {
   update,
   remove,
   markPaid,
+  markAdminFeePaid,
   summary,
   workerSummary,
   getWorkerDetail,
   getAllWorkers,
+  getAllAdmins, 
+  getAdminDetail,
   dashboardSummary,
 };

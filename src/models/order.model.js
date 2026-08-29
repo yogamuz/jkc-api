@@ -49,6 +49,14 @@ const orderWorkerSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+        isAdminFeePaid: {
+      type: Boolean,
+      default: false,
+    },
+    adminFeePaidAt: {
+      type: Date,
+      default: null,
+    },
   },
   { _id: false },
 );

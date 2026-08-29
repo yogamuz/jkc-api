@@ -39,7 +39,7 @@ const create = async (req, res, next) => {
     const errors = validateCreateSeason(req.body);
     if (errors.length) return res.status(400).json({ message: errors.join(" ") });
 
-    const season = await seasonService.createSeason(req.body);
+    const season = await seasonService.createSeason(req.body, req.user.id);
     res.status(201).json({ message: "Season berhasil dibuat.", data: season });
   } catch (err) {
     next(err);
@@ -49,7 +49,7 @@ const create = async (req, res, next) => {
 // PATCH /api/seasons/:id
 const update = async (req, res, next) => {
   try {
-    const season = await seasonService.updateSeason(req.params.id, req.body);
+    const season = await seasonService.updateSeason(req.params.id, req.body, req.user.id);
     res.json({ message: "Season berhasil diupdate.", data: season });
   } catch (err) {
     next(err);
@@ -59,7 +59,7 @@ const update = async (req, res, next) => {
 // DELETE /api/seasons/:id
 const remove = async (req, res, next) => {
   try {
-    const result = await seasonService.deleteSeason(req.params.id);
+    const result = await seasonService.deleteSeason(req.params.id, req.user.id);
     res.json(result);
   } catch (err) {
     next(err);
@@ -72,7 +72,7 @@ const addColumn = async (req, res, next) => {
     const errors = validateAddColumn(req.body);
     if (errors.length) return res.status(400).json({ message: errors.join(" ") });
 
-    const season = await seasonService.addColumn(req.params.id, req.body);
+    const season = await seasonService.addColumn(req.params.id, req.body, req.user.id);
     res.status(201).json({ message: "Kolom berhasil ditambahkan.", data: season });
   } catch (err) {
     next(err);
@@ -82,7 +82,7 @@ const addColumn = async (req, res, next) => {
 // DELETE /api/seasons/:id/columns/:key
 const removeColumn = async (req, res, next) => {
   try {
-    const season = await seasonService.removeColumn(req.params.id, req.params.key);
+    const season = await seasonService.removeColumn(req.params.id, req.params.key, req.user.id);
     res.json({ message: "Kolom berhasil dihapus.", data: season });
   } catch (err) {
     next(err);
@@ -93,7 +93,7 @@ const removeColumn = async (req, res, next) => {
 const updateRates = async (req, res, next) => {
   try {
     const { rates, note } = req.body;
-    const season = await seasonService.updateRates(req.params.id, rates, note);
+    const season = await seasonService.updateRates(req.params.id, rates, note, req.user.id);
     res.json({ message: "Rate berhasil diupdate. History rate lama tetap tersimpan.", data: season });
   } catch (err) {
     next(err);

@@ -12,7 +12,10 @@ const authRoutes = require("./routes/auth.routes");
 const seasonRoutes = require("./routes/season.routes");
 const orderRoutes = require("./routes/order.routes");
 const workerRoutes = require("./routes/worker.routes");
+const auditLogRoutes = require("./routes/auditLog.routes");
+const adminRoutes = require("./routes/admin.routes");
 const { errorHandler } = require("./middlewares/error.middleware");
+
 
 const app = express();
 
@@ -47,6 +50,8 @@ app.use(cookieParser());
 // ── Routes ────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/seasons", seasonRoutes);
+app.use("/api/audit-logs", auditLogRoutes);
+app.use("/api/admins", adminRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/dashboard/summary", protect, dashboardSummary);
 app.use("/api/workers", workerRoutes);
