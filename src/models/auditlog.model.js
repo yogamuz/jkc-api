@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 
+// ─ Sub-schema: audit log ───────────────────────────────
 const auditLogSchema = new mongoose.Schema(
   {
     action: {
