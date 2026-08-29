@@ -1,4 +1,4 @@
-const AuditLog = require("../models/auditLog.model");
+const AuditLog = require("../models/auditlog.model");
 
 const diffFields = (before = {}, after = {}, fields = []) => {
   const changes = {};
