@@ -442,6 +442,7 @@ const getWorkerDetail = async (workerName, seasonId = null) => {
 
     return {
       orderId: order._id,
+      seasonId: order.seasonId?._id || null,
       seasonName: order.seasonId?.name || "—",
       customerName: order.customerName,
       date: order.date,
@@ -608,6 +609,7 @@ const getAdminDetail = async (adminName, seasonId = null) => {
 
     return {
       orderId: order._id,
+
       seasonName: order.seasonId?.name || "—",
       customerName: order.customerName,
       inputAt: order.createdAt,
