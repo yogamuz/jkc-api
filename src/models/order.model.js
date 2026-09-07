@@ -32,7 +32,7 @@ const orderWorkerSchema = new mongoose.Schema(
     // gaji dari job (rankBreakdown × rate) — dihitung otomatis
     jobSalary: {
       type: Number,
-      default: 0,R
+      default: 0,
     },
     // total fee admin = adminIds.length × Season.adminFee — dihitung otomatis
     adminFeeTotal: {
