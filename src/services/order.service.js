@@ -6,9 +6,17 @@ const { logAction, diffFields } = require("./auditLog.service");
 // ── Helper: hitung jobSalary, adminFeeTotal, dan salary total untuk 1 worker ──
 // adminFeePerId SELALU diambil dari Season (server-side), tidak pernah dari input client.
 const buildWorker = (w, rates, category, adminFeePerId) => {
-  const jobSalary = rates
-    ? calculateWorkerSalary(rates, w.rankBreakdown || {}, category)
-    : 0;
+  const hasCustomSalary =
+    w.customSalary !== undefined &&
+    w.customSalary !== null &&
+    w.customSalary !== "" &&
+    !isNaN(Number(w.customSalary));
+
+  const jobSalary = hasCustomSalary
+    ? Number(w.customSalary)
+    : rates
+      ? calculateWorkerSalary(rates, w.rankBreakdown || {}, category)
+      : 0;
 
   const adminIds = Array.isArray(w.adminIds)
     ? w.adminIds.map((id) => String(id).trim()).filter(Boolean)
@@ -18,6 +26,7 @@ const buildWorker = (w, rates, category, adminFeePerId) => {
   return {
     name: w.name.toUpperCase(),
     rankBreakdown: w.rankBreakdown || {},
+    customSalary: hasCustomSalary ? Number(w.customSalary) : null,
     adminIds,
     jobSalary,
     adminFeeTotal,
@@ -132,15 +141,14 @@ const createOrder = async (data) => {
   });
 
   return order;
-  
-await logAction({
-  action: "CREATE",
-  entityType: "Order",
-  entityId: order._id,
-  changes: null,
-  performedBy: data.createdBy || null,
-});
 
+  await logAction({
+    action: "CREATE",
+    entityType: "Order",
+    entityId: order._id,
+    changes: null,
+    performedBy: data.createdBy || null,
+  });
 };
 
 /**
@@ -439,6 +447,7 @@ const getWorkerDetail = async (workerName, seasonId = null) => {
       date: order.date,
       category: order.category,
       rankBreakdown: Object.fromEntries(worker.rankBreakdown),
+      customSalary: worker.customSalary,
       adminIds: worker.adminIds || [],
       jobSalary: worker.jobSalary,
       adminFeeTotal: worker.adminFeeTotal,
@@ -534,15 +543,24 @@ const getAllAdmins = async (seasonId = null) => {
         todayIdInput: {
           $sum: {
             $cond: [
-              { $and: [{ $gte: ["$createdAt", start] }, { $lte: ["$createdAt", end] }] },
+              {
+                $and: [
+                  { $gte: ["$createdAt", start] },
+                  { $lte: ["$createdAt", end] },
+                ],
+              },
               "$idCount",
               0,
             ],
           },
         },
         totalEarned: { $sum: "$adminFeeTotal" },
-        totalPaid: { $sum: { $cond: ["$isAdminFeePaid", "$adminFeeTotal", 0] } },
-        totalUnpaid: { $sum: { $cond: ["$isAdminFeePaid", 0, "$adminFeeTotal"] } },
+        totalPaid: {
+          $sum: { $cond: ["$isAdminFeePaid", "$adminFeeTotal", 0] },
+        },
+        totalUnpaid: {
+          $sum: { $cond: ["$isAdminFeePaid", 0, "$adminFeeTotal"] },
+        },
       },
     },
     { $sort: { totalUnpaid: -1 } },
@@ -573,10 +591,15 @@ const getAdminDetail = async (adminName, seasonId = null) => {
     .populate("seasonId", "name label")
     .sort({ createdAt: -1 });
 
-  let totalIdInput = 0, totalEarned = 0, totalPaid = 0, totalUnpaid = 0;
+  let totalIdInput = 0,
+    totalEarned = 0,
+    totalPaid = 0,
+    totalUnpaid = 0;
 
   const history = orders.map((order) => {
-    const worker = order.workers.find((w) => w.name === adminName.toUpperCase());
+    const worker = order.workers.find(
+      (w) => w.name === adminName.toUpperCase(),
+    );
     const idCount = worker.adminIds.length;
     totalIdInput += idCount;
     totalEarned += worker.adminFeeTotal;

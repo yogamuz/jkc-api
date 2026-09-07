@@ -18,6 +18,10 @@ const orderWorkerSchema = new mongoose.Schema(
       of: Number,
       default: {},
     },
+        customSalary: {
+      type: Number,
+      default: null,
+    },
     // ── Admin fee (opsional) ──────────────────────────────
     // ID-ID yang diinput admin secara manual, contoh: ["1", "2", "3"]
     // Fee per ID diambil dari Season.adminFee (server-side, admin tidak bisa override)
@@ -28,7 +32,7 @@ const orderWorkerSchema = new mongoose.Schema(
     // gaji dari job (rankBreakdown × rate) — dihitung otomatis
     jobSalary: {
       type: Number,
-      default: 0,
+      default: 0,R
     },
     // total fee admin = adminIds.length × Season.adminFee — dihitung otomatis
     adminFeeTotal: {
