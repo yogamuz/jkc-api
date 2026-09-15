@@ -140,8 +140,15 @@ const getPublicActiveRates = async () => {
 
   const rates = getActiveRates(season);
 
+  // ambil effectiveDate dari entry rateHistory paling baru
+  // untuk dipakai frontend sebagai penanda "kapan harga terakhir diupdate"
+  const latestEntry = [...season.rateHistory].sort(
+    (a, b) => new Date(b.effectiveDate) - new Date(a.effectiveDate),
+  )[0];
+
   return {
     seasonName: season.label || season.name,
+    updatedAt: latestEntry ? latestEntry.effectiveDate : null,
     rates: rates.map((r) => ({
       tier: r.tier,
       rate_store_joki: r.rate_store_joki,
