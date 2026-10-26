@@ -153,6 +153,14 @@ const getPublicActiveRates = async () => {
       tier: r.tier,
       rate_store_joki: r.rate_store_joki,
       rate_store_jokgen: r.rate_store_jokgen,
+      promos: (r.promos || [])
+        .filter((p) => p.buyQty > 0 && p.bonusQty > 0)
+        .map((p) => ({
+          service: p.service || "joki",
+          buyQty: p.buyQty,
+          bonusQty: p.bonusQty,
+          price: p.price || 0,
+        })),
     })),
   };
 };

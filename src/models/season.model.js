@@ -42,6 +42,19 @@ const columnSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// ── Sub-schema: promo per tier (misal 10+1, 10+2) ─────────
+// service: "joki" (Joki Rank) atau "jokgen" (Joki Gendong)
+// price: 0 = otomatis (rate × buyQty), > 0 = harga custom
+const promoSchema = new mongoose.Schema(
+  {
+    service: { type: String, enum: ["joki", "jokgen"], default: "joki" },
+    buyQty: { type: Number, required: true, min: 1 },
+    bonusQty: { type: Number, required: true, min: 1 },
+    price: { type: Number, default: 0 },
+  },
+  { _id: false },
+);
+
 // ── Sub-schema: rate per tier ─────────────────────────────
 const rateSchema = new mongoose.Schema(
   {
@@ -50,9 +63,11 @@ const rateSchema = new mongoose.Schema(
     rate_store_jokgen: { type: Number, default: 0 },
     rate_worker_joki: { type: Number, default: 0 },
     rate_worker_jokgen: { type: Number, default: 0 },
+    promos: { type: [promoSchema], default: [] },
   },
   { _id: false },
 );
+
 // ── Sub-schema: snapshot rate pada tanggal tertentu ───────
 // Setiap kali rate diupdate, entry baru di-push ke rateHistory
 // Sistem cari entry dengan effectiveDate <= tanggal order
