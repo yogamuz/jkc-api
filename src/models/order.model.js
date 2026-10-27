@@ -117,6 +117,13 @@ const orderSchema = new mongoose.Schema(
       enum: ORDER_STATUS,
       default: "PENDING",
     },
+    // catatan opsional untuk order (tampil sebagai tooltip di tabel)
+    keterangan: {
+      type: String,
+      trim: true,
+      maxlength: [200, "Keterangan maksimal 200 karakter."],
+      default: "",
+    },
     // ── Worker ────────────────────────────────────────────
     workers: {
       type: [orderWorkerSchema],

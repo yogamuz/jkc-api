@@ -132,6 +132,7 @@ const createOrder = async (data) => {
     payment: payment ? payment.trim().toUpperCase() : null,
     price,
     status: status || "PENDING",
+    keterangan: keterangan ? String(keterangan).trim() : "",
     workers: processedWorkers,
     totalWorkerSalary,
     profit,
@@ -174,6 +175,7 @@ const updateOrder = async (id, data) => {
     "payment",
     "price",
     "status",
+    "keterangan",
     "extraFields",
   ];
   allowedFields.forEach((key) => {
