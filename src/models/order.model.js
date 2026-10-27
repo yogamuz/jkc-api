@@ -18,7 +18,14 @@ const orderWorkerSchema = new mongoose.Schema(
       of: Number,
       default: {},
     },
-        customSalary: {
+    // bonus per tier (promo 10+1, 10+2) — TIDAK dihitung ke gaji
+    // contoh: { MAWI: 1 }
+    bonusBreakdown: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    customSalary: {
       type: Number,
       default: null,
     },
@@ -53,7 +60,7 @@ const orderWorkerSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-        isAdminFeePaid: {
+    isAdminFeePaid: {
       type: Boolean,
       default: false,
     },

@@ -26,6 +26,7 @@ const buildWorker = (w, rates, category, adminFeePerId) => {
   return {
     name: w.name.toUpperCase(),
     rankBreakdown: w.rankBreakdown || {},
+    bonusBreakdown: w.bonusBreakdown || {},
     customSalary: hasCustomSalary ? Number(w.customSalary) : null,
     adminIds,
     jobSalary,
@@ -440,6 +441,43 @@ const getWorkerDetail = async (workerName, seasonId = null) => {
     if (worker.isPaid) totalPaid += worker.salary;
     else totalUnpaid += worker.salary;
 
+    const rankBreakdown = Object.fromEntries(worker.rankBreakdown);
+    const bonusBreakdown = worker.bonusBreakdown
+      ? Object.fromEntries(worker.bonusBreakdown)
+      : {};
+
+    // rate worker per tier dari rateSnapshot saat order dibuat
+    const snap = order.rateSnapshot;
+    const rateList = Array.isArray(snap)
+      ? snap
+      : Object.values(snap || {}).filter(
+          (v) => v && typeof v === "object" && v.tier,
+        );
+    const isGendong = (order.category || "").toUpperCase().includes("GENDONG");
+
+    const allTiers = [
+      ...new Set([
+        ...Object.keys(rankBreakdown),
+        ...Object.keys(bonusBreakdown),
+      ]),
+    ];
+
+    const rankDetails = allTiers
+      .map((tier) => {
+        const stars = rankBreakdown[tier] || 0;
+        const bonus = bonusBreakdown[tier] || 0;
+        const rateEntry = rateList.find(
+          (r) => String(r.tier).toUpperCase() === tier.toUpperCase(),
+        );
+        const ratePerStar = rateEntry
+          ? isGendong
+            ? rateEntry.rate_worker_jokgen
+            : rateEntry.rate_worker_joki
+          : null;
+        return { tier, stars, bonus, ratePerStar };
+      })
+      .filter((r) => r.stars > 0 || r.bonus > 0);
+
     return {
       orderId: order._id,
       seasonId: order.seasonId?._id || null,
@@ -447,7 +485,9 @@ const getWorkerDetail = async (workerName, seasonId = null) => {
       customerName: order.customerName,
       date: order.date,
       category: order.category,
-      rankBreakdown: Object.fromEntries(worker.rankBreakdown),
+      rankBreakdown,
+      bonusBreakdown,
+      rankDetails,
       customSalary: worker.customSalary,
       adminIds: worker.adminIds || [],
       jobSalary: worker.jobSalary,
