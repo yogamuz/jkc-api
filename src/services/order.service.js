@@ -83,6 +83,7 @@ const createOrder = async (data) => {
     payment,
     price,
     status,
+    keterangan,
     workers = [],
     extraFields = {},
   } = data;
