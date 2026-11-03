@@ -3,6 +3,13 @@ const Season = require("../models/season.model");
 const { getRateByDate, calculateWorkerSalary } = require("./season.service");
 const { logAction, diffFields } = require("./auditLog.service");
 
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+// "2026-11-02" -> awal/akhir hari WIB. Selain format itu, parse biasa.
+const parseBoundary = (val, endOfDay = false) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(val)
+    ? new Date(`${val}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}+07:00`)
+    : new Date(val);
 // ── Helper: hitung jobSalary, adminFeeTotal, dan salary total untuk 1 worker ──
 // adminFeePerId SELALU diambil dari Season (server-side), tidak pernah dari input client.
 const buildWorker = (w, rates, category, adminFeePerId) => {
@@ -50,8 +57,8 @@ const getOrdersBySeason = async (seasonId, filters = {}) => {
   }
   if (filters.dateFrom || filters.dateTo) {
     query.date = {};
-    if (filters.dateFrom) query.date.$gte = new Date(filters.dateFrom);
-    if (filters.dateTo) query.date.$lte = new Date(filters.dateTo);
+    if (filters.dateFrom) query.date.$gte = parseBoundary(filters.dateFrom);
+    if (filters.dateTo) query.date.$lte = parseBoundary(filters.dateTo, true);
   }
   return Order.find(query)
     .populate("createdBy", "avatar username")
@@ -143,8 +150,6 @@ const createOrder = async (data) => {
     updatedBy: data.createdBy || null,
   });
 
-  return order;
-
   await logAction({
     action: "CREATE",
     entityType: "Order",
@@ -152,6 +157,8 @@ const createOrder = async (data) => {
     changes: null,
     performedBy: data.createdBy || null,
   });
+
+  return order;
 };
 
 /**
@@ -551,10 +558,15 @@ const getAllWorkers = async (seasonId = null) => {
 };
 
 const getTodayRange = () => {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
+  const wibNow = new Date(Date.now() + WIB_OFFSET_MS);
+  const start = new Date(
+    Date.UTC(
+      wibNow.getUTCFullYear(),
+      wibNow.getUTCMonth(),
+      wibNow.getUTCDate(),
+    ) - WIB_OFFSET_MS,
+  );
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
   return { start, end };
 };
 
