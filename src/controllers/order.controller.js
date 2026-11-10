@@ -1,8 +1,17 @@
 const orderService = require("../services/order.service");
+const telegramService = require("../services/telegram.service");
 const {
   validateCreateOrder,
   validateUpdateOrder,
 } = require("../validation/order.validation");
+
+// Non-owner tidak boleh lihat profit asli -> dikirim sebagai 0
+const maskProfit = (order, user) => {
+  if (!order || user?.role === "owner") return order;
+  const obj = typeof order.toJSON === "function" ? order.toJSON() : { ...order };
+  obj.profit = 0;
+  return obj;
+};
 
 // GET /api/orders?seasonId=xxx&workerName=xxx&status=xxx&dateFrom=xxx&dateTo=xxx
 const getAll = async (req, res, next) => {
@@ -20,7 +29,7 @@ const getAll = async (req, res, next) => {
       dateTo,
     });
 
-    res.json({ data: orders });
+    res.json({ data: orders.map((o) => maskProfit(o, req.user)) });
   } catch (err) {
     next(err);
   }
@@ -30,7 +39,7 @@ const getAll = async (req, res, next) => {
 const getOne = async (req, res, next) => {
   try {
     const order = await orderService.getOrderById(req.params.id);
-    res.json({ data: order });
+    res.json({ data: maskProfit(order, req.user) });
   } catch (err) {
     next(err);
   }
@@ -48,7 +57,10 @@ const create = async (req, res, next) => {
       createdBy: req.user.id,
       updatedBy: req.user.id,
     });
-    res.status(201).json({ message: "Order berhasil dibuat.", data: order });
+    res.status(201).json({
+      message: "Order berhasil dibuat.",
+      data: maskProfit(order, req.user),
+    });
   } catch (err) {
     next(err);
   }
@@ -65,7 +77,10 @@ const update = async (req, res, next) => {
       ...req.body,
       updatedBy: req.user.id,
     });
-    res.json({ message: "Order berhasil diupdate.", data: order });
+    res.json({
+      message: "Order berhasil diupdate.",
+      data: maskProfit(order, req.user),
+    });
   } catch (err) {
     next(err);
   }
@@ -98,7 +113,7 @@ const markPaid = async (req, res, next) => {
     );
     res.json({
       message: `Gaji worker berhasil di-mark sebagai ${isPaid ? "PAID" : "UNPAID"}.`,
-      data: order,
+      data: maskProfit(order, req.user),
     });
   } catch (err) {
     next(err);
@@ -122,7 +137,7 @@ const markAdminFeePaid = async (req, res, next) => {
     );
     res.json({
       message: `Fee admin berhasil di-mark sebagai ${isPaid ? "PAID" : "UNPAID"}.`,
-      data: order,
+      data: maskProfit(order, req.user),
     });
   } catch (err) {
     next(err);
@@ -231,6 +246,16 @@ const getAdminDetail = async (req, res, next) => {
   }
 };
 
+// POST /api/orders/:id/notify-telegram
+const notifyTelegram = async (req, res, next) => {
+  try {
+    const data = await telegramService.sendJobToTelegram(req.params.id);
+    res.json({ message: "Job berhasil dikirim ke Telegram.", data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getAll,
   getOne,
@@ -243,7 +268,8 @@ module.exports = {
   workerSummary,
   getWorkerDetail,
   getAllWorkers,
-  getAllAdmins, 
+  getAllAdmins,
   getAdminDetail,
   dashboardSummary,
+  notifyTelegram,
 };
