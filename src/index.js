@@ -1,5 +1,7 @@
 const { dashboardSummary } = require("./controllers/order.controller");
 const { protect } = require("./middlewares/auth.middleware");
+const { webhookCallback } = require("grammy");
+const { createBot } = require("./bot");
 
 const express = require("express");
 const cookieParser = require("cookie-parser");
@@ -55,6 +57,20 @@ app.use("/api/admins", adminRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/dashboard/summary", protect, dashboardSummary);
 app.use("/api/workers", workerRoutes);
+
+// Telegram webhook (dipanggil Telegram saat tombol TAKE/DROP ditekan)
+let telegramBot = null;
+app.post("/api/telegram/webhook", (req, res, next) => {
+  try {
+    if (!telegramBot) telegramBot = createBot();
+    return webhookCallback(telegramBot, "express", {
+      secretToken: process.env.TELEGRAM_WEBHOOK_SECRET,
+    })(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
