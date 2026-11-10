@@ -151,6 +151,20 @@ const orderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
+    telegram: {
+      chatId: { type: Number, default: null },
+      messageId: { type: Number, default: null },
+      sentAt: { type: Date, default: null },
+      takenBy: { type: Number, default: null },
+      text: { type: String, default: "" },
+    },
+    // rank/bonus/gaji untuk job yang belum punya worker (dipindah ke worker saat "take")
+    pendingJob: {
+      rankBreakdown: { type: Map, of: Number, default: {} },
+      bonusBreakdown: { type: Map, of: Number, default: {} },
+      customSalary: { type: Number, default: null },
+      salary: { type: Number, default: 0 },
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -169,5 +183,5 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ seasonId: 1, date: -1 });
 orderSchema.index({ seasonId: 1, customerName: 1 });
 orderSchema.index({ "workers.name": 1 });
-
+orderSchema.index({ "telegram.chatId": 1, "telegram.messageId": 1 });
 module.exports = mongoose.model("Order", orderSchema);

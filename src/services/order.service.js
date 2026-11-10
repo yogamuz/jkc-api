@@ -41,6 +41,38 @@ const buildWorker = (w, rates, category, adminFeePerId) => {
     salary: jobSalary + adminFeeTotal,
     isPaid: w.isPaid || false,
     paidAt: w.paidAt || null,
+    isAdminFeePaid: w.isAdminFeePaid || false,
+    adminFeePaidAt: w.adminFeePaidAt || null,
+  };
+};
+const toPlain = (m) => (m instanceof Map ? Object.fromEntries(m) : m || {});
+
+// Rank/bonus/gaji untuk job yang belum punya worker
+const buildPendingJob = (p, rates, category) => {
+  const empty = {
+    rankBreakdown: {},
+    bonusBreakdown: {},
+    customSalary: null,
+    salary: 0,
+  };
+  if (!p) return empty;
+  const rankBreakdown = toPlain(p.rankBreakdown);
+  const bonusBreakdown = toPlain(p.bonusBreakdown);
+  const hasCustom =
+    p.customSalary !== undefined &&
+    p.customSalary !== null &&
+    p.customSalary !== "" &&
+    !isNaN(Number(p.customSalary));
+  const salary = hasCustom
+    ? Number(p.customSalary)
+    : rates
+      ? calculateWorkerSalary(rates, rankBreakdown, category)
+      : 0;
+  return {
+    rankBreakdown,
+    bonusBreakdown,
+    customSalary: hasCustom ? Number(p.customSalary) : null,
+    salary,
   };
 };
 
@@ -117,8 +149,18 @@ const createOrder = async (data) => {
     (sum, w) => sum + w.salary,
     0,
   );
+
+  // belum ada worker: rank/bonus/gaji disimpan di pendingJob
+  const pendingJob = buildPendingJob(
+    processedWorkers.length === 0 ? data.pendingJob : null,
+    rates,
+    category,
+  );
+
   const totalWorkerSalary =
-    calculatedSalary > 0 ? calculatedSalary : data.totalWorkerSalary || 0;
+    calculatedSalary > 0
+      ? calculatedSalary
+      : pendingJob.salary || data.totalWorkerSalary || 0;
 
   // Kalau pakai fallback dari Excel, distribute salary ke worker pertama agar tercatat
   if (
@@ -142,6 +184,7 @@ const createOrder = async (data) => {
     status: status || "PENDING",
     keterangan: keterangan ? String(keterangan).trim() : "",
     workers: processedWorkers,
+    pendingJob,
     totalWorkerSalary,
     profit,
     extraFields,
@@ -199,15 +242,38 @@ const updateOrder = async (id, data) => {
     const adminFeePerId = season?.adminFee || 0;
 
     if (data.workers) {
-      order.workers = data.workers.map((w) =>
-        buildWorker(w, rates, category, adminFeePerId),
-      );
+      const prevByName = new Map(order.workers.map((w) => [w.name, w]));
+      order.workers = data.workers.map((w) => {
+        const prev = prevByName.get(String(w.name).toUpperCase());
+        return buildWorker(
+          {
+            ...w,
+            adminIds: w.adminIds !== undefined ? w.adminIds : prev?.adminIds,
+            isAdminFeePaid: w.isAdminFeePaid ?? prev?.isAdminFeePaid,
+            adminFeePaidAt: w.adminFeePaidAt ?? prev?.adminFeePaidAt,
+          },
+          rates,
+          category,
+          adminFeePerId,
+        );
+      });
     }
 
-    order.totalWorkerSalary = order.workers.reduce(
-      (sum, w) => sum + w.salary,
-      0,
-    );
+    // belum ada worker: pakai pendingJob. Sudah ada worker: pendingJob dikosongkan
+    if (order.workers.length === 0) {
+      order.pendingJob = buildPendingJob(
+        data.pendingJob !== undefined ? data.pendingJob : order.pendingJob,
+        rates,
+        category,
+      );
+    } else {
+      order.pendingJob = buildPendingJob(null, rates, category);
+    }
+
+    order.totalWorkerSalary =
+      order.workers.length > 0
+        ? order.workers.reduce((sum, w) => sum + w.salary, 0)
+        : order.pendingJob.salary;
     order.profit = order.price - order.totalWorkerSalary;
     order.rateSnapshot = rates
       ? { ...rates, adminFeePerId }
@@ -687,6 +753,198 @@ const getAdminDetail = async (adminName, seasonId = null) => {
   };
 };
 
+/**
+ * Tambah ID admin ke 1 worker di 1 order, tanpa rebuild worker.
+ * Dipakai bot Telegram. ID yang sudah ada dilewati (tidak dobel).
+ */
+const addAdminIds = async (orderId, workerName, ids, meta = {}) => {
+  const order = await Order.findById(orderId);
+  if (!order) throw new Error("Order tidak ditemukan.");
+
+  const name = workerName.toUpperCase();
+  const worker = order.workers.find((w) => w.name === name);
+  if (!worker)
+    throw new Error(`Worker "${workerName}" tidak ditemukan di order ini.`);
+
+  const season = await Season.findById(order.seasonId);
+  const feePerId = season?.adminFee || 0;
+
+  const existing = new Set(worker.adminIds.map(String));
+  const fresh = [];
+  const duplicates = [];
+  ids
+    .map((i) => String(i).trim())
+    .filter(Boolean)
+    .forEach((id) => {
+      if (existing.has(id) || fresh.includes(id)) duplicates.push(id);
+      else fresh.push(id);
+    });
+
+  if (fresh.length === 0) {
+    return {
+      order,
+      added: 0,
+      duplicates,
+      total: worker.adminIds.length,
+      feeTotal: worker.adminFeeTotal,
+    };
+  }
+
+  worker.adminIds = [...worker.adminIds, ...fresh];
+  worker.adminFeeTotal = worker.adminIds.length * feePerId;
+  worker.salary = worker.jobSalary + worker.adminFeeTotal;
+  // fee yang baru nambah belum dibayar
+  worker.isAdminFeePaid = false;
+  worker.adminFeePaidAt = null;
+
+  order.totalWorkerSalary = order.workers.reduce((s, w) => s + w.salary, 0);
+  order.profit = order.price - order.totalWorkerSalary;
+  await order.save();
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Order",
+    entityId: order._id,
+    changes: {
+      adminIdsAdded: { workerName: name, ids: fresh, via: "telegram", ...meta },
+    },
+    performedBy: null,
+  });
+
+  return {
+    order,
+    added: fresh.length,
+    duplicates,
+    total: worker.adminIds.length,
+    feeTotal: worker.adminFeeTotal,
+  };
+};
+
+/**
+ * Worker ambil job lewat balasan "take" di Telegram.
+ * Atomik: hanya berhasil kalau workers masih kosong.
+ */
+const takeJob = async (orderId, messageId, workerName, telegramId, meta = {}) => {
+  const base = { _id: orderId, "telegram.messageId": messageId };
+  const order = await Order.findOne(base);
+  if (!order) return { status: "expired" };
+
+  const takenBy = (o) => (o?.workers || []).map((w) => w.name).join(", ");
+  if (order.workers.length > 0)
+    return { status: "taken", by: takenBy(order), order };
+
+  const name = workerName.toUpperCase();
+  const season = await Season.findById(order.seasonId).select("extraColumns");
+
+  const pj = order.pendingJob || {};
+  const jobSalary = pj.salary || 0;
+
+  const update = {
+    $push: {
+      workers: {
+        name,
+        rankBreakdown: toPlain(pj.rankBreakdown),
+        bonusBreakdown: toPlain(pj.bonusBreakdown),
+        customSalary: pj.customSalary ?? null,
+        adminIds: [],
+        jobSalary,
+        adminFeeTotal: 0,
+        salary: jobSalary,
+        isPaid: false,
+        isAdminFeePaid: false,
+      },
+    },
+    $set: {
+      "telegram.takenBy": telegramId,
+      pendingJob: {
+        rankBreakdown: {},
+        bonusBreakdown: {},
+        customSalary: null,
+        salary: 0,
+      },
+    },
+  };
+  if (order.status === "PENDING") update.$set.status = "PROCESS";
+  if (season?.extraColumns?.some((c) => c.key === "worker"))
+    update.$set["extraFields.worker"] = name;
+
+  const updated = await Order.findOneAndUpdate(
+    { ...base, workers: { $size: 0 } },
+    update,
+    { new: true },
+  );
+  if (!updated) {
+    const cur = await Order.findOne(base);
+    return { status: "taken", by: takenBy(cur), order: cur };
+  }
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Order",
+    entityId: updated._id,
+    changes: { jobTaken: { workerName: name, via: "telegram", ...meta } },
+    performedBy: null,
+  });
+
+  return { status: "ok", order: updated };
+};
+
+/**
+ * Worker batalkan job yang dia ambil (tombol DROP).
+ * Hanya pengambil yang bisa drop, dan hanya kalau belum ada ID admin / belum dibayar.
+ */
+const dropJob = async (orderId, messageId, telegramId, meta = {}) => {
+  const order = await Order.findOne({
+    _id: orderId,
+    "telegram.messageId": messageId,
+  });
+  if (!order) return { status: "expired" };
+  if (order.workers.length === 0) return { status: "free", order };
+  if (order.telegram?.takenBy !== telegramId) return { status: "not_owner" };
+
+  const w = order.workers[0];
+  if (w.isPaid || w.isAdminFeePaid || (w.adminIds || []).length > 0)
+    return { status: "locked" };
+
+  const update = {
+    $set: {
+      workers: [],
+      "telegram.takenBy": null,
+      pendingJob: {
+        rankBreakdown: toPlain(w.rankBreakdown),
+        bonusBreakdown: toPlain(w.bonusBreakdown),
+        customSalary: w.customSalary ?? null,
+        salary: w.jobSalary || 0,
+      },
+    },
+  };
+  if (order.status === "PROCESS") update.$set.status = "PENDING";
+  if (order.extraFields?.get?.("worker") === w.name)
+    update.$unset = { "extraFields.worker": "" };
+
+  const updated = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      "telegram.messageId": messageId,
+      "telegram.takenBy": telegramId,
+      workers: { $size: 1 },
+    },
+    update,
+    { new: true },
+  );
+  if (!updated) return { status: "not_owner" };
+
+  await logAction({
+    action: "UPDATE",
+    entityType: "Order",
+    entityId: updated._id,
+    changes: { jobDropped: { workerName: w.name, via: "telegram", ...meta } },
+    performedBy: null,
+  });
+
+  return { status: "ok", order: updated };
+};
+
 module.exports = {
   getOrdersBySeason,
   getOrderById,
@@ -702,4 +960,7 @@ module.exports = {
   getDashboardSummary,
   getAllAdmins,
   getAdminDetail,
+  addAdminIds,
+  takeJob,
+  dropJob,
 };

@@ -9,6 +9,7 @@ const {
   markAdminFeePaid,
   summary,
   workerSummary,
+  notifyTelegram,
 } = require("../controllers/order.controller");
 const { protect } = require("../middlewares/auth.middleware");
 
@@ -30,4 +31,7 @@ router.delete("/:id", remove);
 // ── Worker Paid Status ────────────────────────────────────
 router.patch("/:id/workers/:workerName/paid", markPaid);
 router.patch("/:id/workers/:workerName/admin-paid", markAdminFeePaid);
+
+// ── Telegram ──────────────────────────────────────────────
+router.post("/:id/notify-telegram", notifyTelegram);
 module.exports = router;
