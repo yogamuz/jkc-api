@@ -12,6 +12,9 @@ const { createBot } = require("./index");
   // hapus menu command lama (/id, /gaji, /unpaid, /help) dari Telegram
   await bot.api.deleteMyCommands();
 
+  const { setupWorkerCommands } = require("./registration");
+  setupWorkerCommands(bot).catch(() => {});
+
   bot.start({
     onStart: (me) => console.log(`Bot @${me.username} jalan (polling)`),
   });

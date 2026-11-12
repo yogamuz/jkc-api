@@ -57,6 +57,7 @@ app.use("/api/admins", adminRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/dashboard/summary", protect, dashboardSummary);
 app.use("/api/workers", workerRoutes);
+app.use("/api/worker-registry", require("./routes/workerRegistry.routes"));
 
 // Telegram webhook (dipanggil Telegram saat tombol TAKE/DROP ditekan)
 let telegramBot = null;

@@ -3,6 +3,7 @@ const { Bot } = require("grammy");
 const mongoose = require("mongoose");
 const orderService = require("../services/order.service");
 const { takeKeyboard, dropKeyboard, esc } = require("../services/telegram.service");
+const { registerWorkerHandlers } = require("./registration");
 
 // "111:ACIL,222:JULIO" -> { 111: "ACIL", 222: "JULIO" }
 const parseWorkerMap = (v) =>
@@ -24,6 +25,8 @@ const createBot = () => {
   const workerMap = parseWorkerMap(process.env.TELEGRAM_WORKER_NAMES);
 
   const bot = new Bot(token);
+
+  registerWorkerHandlers(bot);
 
   // Nama worker: mapping env dulu, kalau tidak ada pakai nama akun Telegram
   const resolveWorkerName = (from) =>
@@ -49,7 +52,7 @@ const createBot = () => {
       return ctx.answerCallbackQuery();
 
     const from = ctx.from;
-    const name = resolveWorkerName(from);
+    const name = ctx.workerName || resolveWorkerName(from);
     if (!name) return ctx.answerCallbackQuery();
     const meta = { telegramId: from.id, username: from.username || null };
     const alert = (text) =>
